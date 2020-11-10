@@ -5,13 +5,13 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 from torchvision import transforms
 import scipy.stats as stats
-from dataloader import CreateDataLoader as CreateTrainDataLoader
+from data.train import CreateDataLoader as CreateTrainDataLoader
+from data.test import CreateDataLoader as CreateTestDataLoader
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--name', required=False, default='project_name',  help='')
-parser.add_argument('--train_root', required=False, default='data/train',  help='sec data path')
-# parser.add_argument('--src_data', required=False, default='src_data',  help='sec data path')
-# parser.add_argument('--tgt_data', required=False, default='tgt_data',  help='tgt data path')
+parser.add_argument('--train_root', required=False, default='datasets/train',  help='train datasets path')
+parser.add_argument('--test_root', required=False, default='datasets/test',  help='test datasets path')
 parser.add_argument('--vgg_model', required=False, default='vgg19-dcbb9e9d.pth', help='pre-trained VGG19 model path')
 parser.add_argument('--in_ngc', type=int, default=3, help='input channel for generator')
 parser.add_argument('--out_ngc', type=int, default=3, help='output channel for generator')
@@ -22,13 +22,13 @@ parser.add_argument('--ngf', type=int, default=64)
 parser.add_argument('--ndf', type=int, default=32)
 parser.add_argument('--nb', type=int, default=8, help='the number of resnet block layer for generator')
 parser.add_argument('--input_size', type=int, default=256, help='input size')
-parser.add_argument('--train_epoch', type=int, default=200)
-parser.add_argument('--pre_train_epoch', type=int, default=10)
+parser.add_argument('--train_epoch', type=int, default=400)
+parser.add_argument('--pre_train_epoch', type=int, default=30)
 parser.add_argument('--lrD', type=float, default=0.0002, help='learning rate, default=0.0002')
 parser.add_argument('--lrG', type=float, default=0.0002, help='learning rate, default=0.0002')
 parser.add_argument('--con_lambda', type=float, default=10, help='lambda for content loss')
-parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for Adam optimizer')
-parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam optimizer')
+parser.add_argument('--beta1', type=float, default=0, help='beta1 for Adam optimizer')
+parser.add_argument('--beta2', type=float, default=0.9, help='beta2 for Adam optimizer')
 parser.add_argument('--latest_generator_model', required=False, default='', help='the latest trained model path')
 parser.add_argument('--latest_discriminator_model', required=False, default='', help='the latest trained model path')
 parser.add_argument('--n_dis', type=int, default='5', help='discriminator trainging count per generater training count')
@@ -70,6 +70,8 @@ def main():
     # data_loader
     landscape_dataloader = CreateTrainDataLoader(args, "landscape")
     anime_dataloader = CreateTrainDataLoader(args, "anime")
+    landscape_test_dataloader = CreateTestDataLoader(args, "landscape")
+    anime_test_dataloader = CreateTestDataLoader(args, "anime")
 
     generator = networks.Generator(args.ngf)
     if args.latest_generator_model != '':
@@ -137,7 +139,7 @@ def main():
                 gen_img = generator(lsimg, hint)
                 G_feature = VGG((gen_img + 1) / 2)
 
-                Recon_loss = 10 * MSELoss(G_feature, x_feature.detach())
+                Recon_loss = 10 * L1_loss(G_feature, x_feature.detach())
                 Recon_losses.append(Recon_loss.item())
                 pre_train_hist['Recon_loss'].append(Recon_loss.item())
 
@@ -163,20 +165,22 @@ def main():
                         if n == 4:
                             break
 
-                    # for n, (x, _) in enumerate(test_loader_src):
-                    #     x = x.to(device)
-                    #     G_recon = G(x)
-                    #     result = torch.cat((x[0], G_recon[0]), 2)
-                    #     path = os.path.join(args.name + '_results', 'Reconstruction', args.name + '_test_recon_' + str(n + 1) + '.png')
-                    #     plt.imsave(path, (result.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
-                    #     if n == 4:
-                    #         break
+                    for n, (lcimg, lhimg, lsimg) in enumerate(landscape_test_dataloader):
+                        lcimg, lhimg, lsimg = lcimg.to(device), lhimg.to(device), lsimg.to(device)
+                        mask = mask_gen()
+                        hint = torch.cat((lhimg * mask, mask), 1)
+                        g_recon = generator(lsimg, hint)
+                        result = torch.cat((lcimg[0], g_recon[0]), 2)
+                        path = os.path.join(args.name + '_results', 'Reconstruction', args.name + '_test_recon_' + f'epoch_{epoch}_' + str(n + 1) + '.png')
+                        plt.imsave(path, (result.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+                        if n == 4:
+                            break
 
         total_time = time.time() - start_time
         pre_train_hist['total_time'].append(total_time)
         with open(os.path.join(args.name + '_results',  'pre_train_hist.pkl'), 'wb') as f:
             pickle.dump(pre_train_hist, f)
-
+        torch.save(generator.state_dict(), os.path.join(args.name + '_results', 'generator_pretrain.pkl'))
 
     else:
         print('Load the latest generator model, no need to pre-train')
@@ -203,6 +207,7 @@ def main():
 
             if i % args.n_dis == 0:
                  # train G
+                print("TrainG")
                 G_optimizer.zero_grad()
 
                 mask = mask_gen()
@@ -213,7 +218,7 @@ def main():
 
                 x_feature = VGG((lcimg + 1) / 2)
                 G_feature = VGG((gen_img + 1) / 2)
-                Con_loss = args.con_lambda * MSELoss(G_feature, x_feature.detach())
+                Con_loss = args.con_lambda * L1_loss(G_feature, x_feature.detach())
 
                 Gen_loss = D_fake_loss + Con_loss
                 Gen_losses.append(D_fake_loss.item())
@@ -225,6 +230,7 @@ def main():
                 G_optimizer.step()
                 # G_scheduler.step()
 
+            print("TrainD")
             # train D
             D_optimizer.zero_grad()
 
@@ -272,14 +278,16 @@ def main():
                     if n == 4:
                         break
 
-                # for n, (x, _) in enumerate(test_loader_src):
-                #     x = x.to(device)
-                #     G_recon = generator(x)
-                #     result = torch.cat((x[0], G_recon[0]), 2)
-                #     path = os.path.join(args.name + '_results', 'Transfer', str(epoch+1) + '_epoch_' + args.name + '_test_' + str(n + 1) + '.png')
-                #     plt.imsave(path, (result.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
-                #     if n == 4:
-                #         break
+                for n, (lcimg, lhimg, lsimg) in enumerate(landscape_test_dataloader):
+                    lcimg, lhimg, lsimg = lcimg.to(device), lhimg.to(device), lsimg.to(device)
+                    mask = mask_gen()
+                    hint = torch.cat((lhimg * mask, mask), 1)
+                    g_recon = generator(lsimg, hint)
+                    result = torch.cat((lcimg[0], g_recon[0]), 2)
+                    path = os.path.join(args.name + '_results', 'Transfer', str(epoch+1) + '_epoch_' + args.name + '_test_' + str(n + 1) + '.png')
+                    plt.imsave(path, (result.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+                    if n == 4:
+                        break
 
                 torch.save(generator.state_dict(), os.path.join(args.name + '_results', 'generator_latest.pkl'))
                 torch.save(generator.state_dict(), os.path.join(args.name + '_results', 'discriminator_latest.pkl'))

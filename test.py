@@ -8,9 +8,8 @@ from dataloader import CreateDataLoader
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--name', required=False, default='project_name',  help='')
-parser.add_argument('--train_root', required=False, default='data/train',  help='sec data path')
-# parser.add_argument('--src_data', required=False, default='src_data',  help='sec data path')
-# parser.add_argument('--tgt_data', required=False, default='tgt_data',  help='tgt data path')
+parser.add_argument('--train_root', required=False, default='datasets/train',  help='train dataset path')
+parser.add_argument('--test_root', required=False, default='datasets/test',  help='test dataset path')
 parser.add_argument('--vgg_model', required=False, default='vgg19-dcbb9e9d.pth', help='pre-trained VGG19 model path')
 parser.add_argument('--in_ngc', type=int, default=3, help='input channel for generator')
 parser.add_argument('--out_ngc', type=int, default=3, help='output channel for generator')
