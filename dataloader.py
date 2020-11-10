@@ -32,7 +32,7 @@ def CreateDataLoader(args, dataset_type="landscape"):
     ])
 
     train_dataset = ImageFolder(root=args.train_root, transform=transform, hint_transform=hint_transform, sketch_transform=sketch_transform, dataset_type=dataset_type)
-    return data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, pin_memory=True)
+    return data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, pin_memory=True)
 
 class ImageFolder(data.Dataset):
     def __init__(self, root, transform=None, hint_transform=None, sketch_transform=None, dataset_type=None):

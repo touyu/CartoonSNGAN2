@@ -42,17 +42,23 @@ anime_dataloader = CreateDataLoader(args, "anime")
 
 for i, ((acimg, ahimg), (lcimg, lhimg, lsimg)) in enumerate(zip(anime_dataloader, landscape_dataloader)):
     print(i, acimg.shape)
-    print(i, lcimg.shape)
     path = os.path.join(f'test_results/{i}_lcimg.png')
     plt.imsave(path, (lcimg[0].cpu().numpy().transpose(1, 2, 0) + 1) / 2)
     path = os.path.join(f'test_results/{i}_lhimg.png')
     plt.imsave(path, (lhimg[0].cpu().numpy().transpose(1, 2, 0) + 1) / 2)
     path = os.path.join(f'test_results/{i}_lsimg.png')
     lsimg = (lsimg[0].cpu().numpy().transpose(1, 2, 0) + 1) / 2
-    # torchvision.utils.save_image(lsimg[0], path)
-    pilTrans = transforms.ToPILImage()
-    lsimg = pilTrans(lsimg)
+    lsimg = transforms.ToPILImage()(lsimg)
     plt.imsave(path, lsimg, cmap="gray")
+
+    path = os.path.join(f'test_results/{i}_acimg.png')
+    plt.imsave(path, (acimg[0].cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+    # path = os.path.join(f'test_results/{i}_ahimg.png')
+    # plt.imsave(path, (lhimg[0].cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+    # path = os.path.join(f'test_results/{i}_lsimg.png')
+    # lsimg = (lsimg[0].cpu().numpy().transpose(1, 2, 0) + 1) / 2
+    # lsimg = transforms.ToPILImage()(lsimg)
+    # plt.imsave(path, lsimg, cmap="gray")
 
 # src_data = "src_data"
 # tgt_data = "tgt_data"

@@ -71,50 +71,115 @@ def main():
     landscape_dataloader = CreateTrainDataLoader(args, "landscape")
     anime_dataloader = CreateTrainDataLoader(args, "anime")
 
-    Generator = networks.Generator(args.ngf)
+    generator = networks.Generator(args.ngf)
     if args.latest_generator_model != '':
         if torch.cuda.is_available():
-            Generator.load_state_dict(torch.load(args.latest_generator_model))
+            generator.load_state_dict(torch.load(args.latest_generator_model))
         else:
             # cpu mode
-            Generator.load_state_dict(torch.load(args.latest_generator_model, map_location=lambda storage, loc: storage))
+            generator.load_state_dict(torch.load(args.latest_generator_model, map_location=lambda storage, loc: storage))
 
-    Discriminator = networks.Discriminator(args.in_ndc, args.out_ndc, args.ndf)
+    discriminator = networks.Discriminator(args.in_ndc, args.out_ndc, args.ndf)
     if args.latest_discriminator_model != '':
         if torch.cuda.is_available():
-            Discriminator.load_state_dict(torch.load(args.latest_discriminator_model))
+            discriminator.load_state_dict(torch.load(args.latest_discriminator_model))
         else:
-            Discriminator.load_state_dict(torch.load(args.latest_discriminator_model, map_location=lambda storage, loc: storage))
+            discriminator.load_state_dict(torch.load(args.latest_discriminator_model, map_location=lambda storage, loc: storage))
 
     VGG = networks.VGG19(init_weights=args.vgg_model, feature_mode=True)
 
-    Generator.to(device)
-    Discriminator.to(device)
+    generator.to(device)
+    discriminator.to(device)
     VGG.to(device)
 
-    Generator.train()
-    Discriminator.train()
+    generator.train()
+    discriminator.train()
 
     VGG.eval()
 
-    G_optimizer = optim.Adam(Generator.parameters(), lr=args.lrG, betas=(args.beta1, args.beta2))
-    D_optimizer = optim.Adam(Discriminator.parameters(), lr=args.lrD, betas=(args.beta1, args.beta2))
+    G_optimizer = optim.Adam(generator.parameters(), lr=args.lrG, betas=(args.beta1, args.beta2))
+    D_optimizer = optim.Adam(discriminator.parameters(), lr=args.lrD, betas=(args.beta1, args.beta2))
     # G_scheduler = optim.lr_scheduler.MultiStepLR(optimizer=G_optimizer, milestones=[args.train_epoch // 2, args.train_epoch // 4 * 3], gamma=0.1)
     # D_scheduler = optim.lr_scheduler.MultiStepLR(optimizer=D_optimizer, milestones=[args.train_epoch // 2, args.train_epoch // 4 * 3], gamma=0.1)
 
     print('---------- Networks initialized -------------')
-    utils.print_network(Generator)
-    utils.print_network(Discriminator)
+    utils.print_network(generator)
+    utils.print_network(discriminator)
     utils.print_network(VGG)
     print('-----------------------------------------------')
 
     BCE_loss = nn.BCELoss().to(device)
     L1_loss = nn.L1Loss().to(device)
+    MSELoss = nn.MSELoss().to(device)
 
     pre_train_hist = {}
     pre_train_hist['Recon_loss'] = []
     pre_train_hist['per_epoch_time'] = []
     pre_train_hist['total_time'] = []
+
+    """ Pre-train reconstruction """
+    if args.latest_generator_model == '':
+        print('Pre-training start!')
+        start_time = time.time()
+        for epoch in range(args.pre_train_epoch):
+            epoch_start_time = time.time()
+            Recon_losses = []
+            for lcimg, lhimg, lsimg in landscape_dataloader:
+                lcimg, lhimg, lsimg = lcimg.to(device), lhimg.to(device), lsimg.to(device)
+
+                # train generator G
+                G_optimizer.zero_grad()
+
+                x_feature = VGG((lcimg + 1) / 2)
+
+                mask = mask_gen()
+                hint = torch.cat((lhimg * mask, mask), 1)
+                gen_img = generator(lsimg, hint)
+                G_feature = VGG((gen_img + 1) / 2)
+
+                Recon_loss = 10 * MSELoss(G_feature, x_feature.detach())
+                Recon_losses.append(Recon_loss.item())
+                pre_train_hist['Recon_loss'].append(Recon_loss.item())
+
+                Recon_loss.backward()
+                G_optimizer.step()
+
+            per_epoch_time = time.time() - epoch_start_time
+            pre_train_hist['per_epoch_time'].append(per_epoch_time)
+            print('[%d/%d] - time: %.2f, Recon loss: %.3f' % ((epoch + 1), args.pre_train_epoch, per_epoch_time, torch.mean(torch.FloatTensor(Recon_losses))))
+
+            # Save
+            if (epoch+1) % 5 == 0:
+                with torch.no_grad():
+                    generator.eval()
+                    for n, (lcimg, lhimg, lsimg) in enumerate(landscape_dataloader):
+                        lcimg, lhimg, lsimg = lcimg.to(device), lhimg.to(device), lsimg.to(device)
+                        mask = mask_gen()
+                        hint = torch.cat((lhimg * mask, mask), 1)
+                        g_recon = generator(lsimg, hint)
+                        result = torch.cat((lcimg[0], g_recon[0]), 2)
+                        path = os.path.join(args.name + '_results', 'Reconstruction', args.name + '_train_recon_' + f'epoch_{epoch}_' + str(n + 1) + '.png')
+                        plt.imsave(path, (result.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+                        if n == 4:
+                            break
+
+                    # for n, (x, _) in enumerate(test_loader_src):
+                    #     x = x.to(device)
+                    #     G_recon = G(x)
+                    #     result = torch.cat((x[0], G_recon[0]), 2)
+                    #     path = os.path.join(args.name + '_results', 'Reconstruction', args.name + '_test_recon_' + str(n + 1) + '.png')
+                    #     plt.imsave(path, (result.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+                    #     if n == 4:
+                    #         break
+
+        total_time = time.time() - start_time
+        pre_train_hist['total_time'].append(total_time)
+        with open(os.path.join(args.name + '_results',  'pre_train_hist.pkl'), 'wb') as f:
+            pickle.dump(pre_train_hist, f)
+
+
+    else:
+        print('Load the latest generator model, no need to pre-train')
 
     train_hist = {}
     train_hist['Disc_loss'] = []
@@ -129,12 +194,12 @@ def main():
     fake = torch.zeros(args.batch_size, 1, args.input_size // 4, args.input_size // 4).to(device)
     for epoch in range(args.train_epoch):
         epoch_start_time = time.time()
-        Generator.train()
+        generator.train()
         Disc_losses = []
         Gen_losses = []
         Con_losses = []
-        for i, ((acimg, ahimg), (lcimg, lhimg, lsimg)) in enumerate(zip(anime_dataloader, landscape_dataloader)):
-            acimg, ahimg, lcimg, lhimg, lsimg = acimg.to(device), ahimg.to(device), lcimg.to(device), lhimg.to(device), lsimg.to(device)
+        for i, ((acimg, _), (lcimg, lhimg, lsimg)) in enumerate(zip(anime_dataloader, landscape_dataloader)):
+            acimg, lcimg, lhimg, lsimg = acimg.to(device), lcimg.to(device), lhimg.to(device), lsimg.to(device)
 
             if i % args.n_dis == 0:
                  # train G
@@ -142,14 +207,13 @@ def main():
 
                 mask = mask_gen()
                 hint = torch.cat((lhimg * mask, mask), 1)
-                gen_img = Generator(lsimg, hint)
-                print(gen_img.shape)
-                D_fake = Discriminator(gen_img)
+                gen_img = generator(lsimg, hint)
+                D_fake = discriminator(gen_img)
                 D_fake_loss = BCE_loss(D_fake, real)
 
                 x_feature = VGG((lcimg + 1) / 2)
                 G_feature = VGG((gen_img + 1) / 2)
-                Con_loss = args.con_lambda * L1_loss(G_feature, x_feature.detach())
+                Con_loss = args.con_lambda * MSELoss(G_feature, x_feature.detach())
 
                 Gen_loss = D_fake_loss + Con_loss
                 Gen_losses.append(D_fake_loss.item())
@@ -164,14 +228,14 @@ def main():
             # train D
             D_optimizer.zero_grad()
 
-            D_real = Discriminator(acimg)
+            D_real = discriminator(acimg)
             D_real_loss = BCE_loss(D_real, real) # Hinge Loss (?)
 
             mask = mask_gen()
             hint = torch.cat((lhimg * mask, mask), 1)
 
-            gen_img = Generator(lsimg, hint)
-            D_fake = Discriminator(gen_img)
+            gen_img = generator(lsimg, hint)
+            D_fake = discriminator(gen_img)
             D_fake_loss = BCE_loss(D_fake, fake)
 
             # D_edge = Discriminator(e)
@@ -188,46 +252,48 @@ def main():
     #     G_scheduler.step()
     #     D_scheduler.step()
 
-    #     per_epoch_time = time.time() - epoch_start_time
-    #     train_hist['per_epoch_time'].append(per_epoch_time)
-    #     print(
-    #     '[%d/%d] - time: %.2f, Disc loss: %.3f, Gen loss: %.3f, Con loss: %.3f' % ((epoch + 1), args.train_epoch, per_epoch_time, torch.mean(torch.FloatTensor(Disc_losses)),
-    #         torch.mean(torch.FloatTensor(Gen_losses)), torch.mean(torch.FloatTensor(Con_losses))))
+        per_epoch_time = time.time() - epoch_start_time
+        train_hist['per_epoch_time'].append(per_epoch_time)
+        print(
+        '[%d/%d] - time: %.2f, Disc loss: %.3f, Gen loss: %.3f, Con loss: %.3f' % ((epoch + 1), args.train_epoch, per_epoch_time, torch.mean(torch.FloatTensor(Disc_losses)),
+            torch.mean(torch.FloatTensor(Gen_losses)), torch.mean(torch.FloatTensor(Con_losses))))
 
-    #     if epoch % 2 == 1 or epoch == args.train_epoch - 1:
-    #         with torch.no_grad():
-    #             Generator.eval()
-    #             for n, (x, _) in enumerate(train_loader_src):
-    #                 x = x.to(device)
-    #                 G_recon = Generator(x)
-    #                 result = torch.cat((x[0], G_recon[0]), 2)
-    #                 path = os.path.join(args.name + '_results', 'Transfer', str(epoch+1) + '_epoch_' + args.name + '_train_' + str(n + 1) + '.png')
-    #                 plt.imsave(path, (result.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
-    #                 if n == 4:
-    #                     break
+        if epoch % 2 == 1 or epoch == args.train_epoch - 1:
+            with torch.no_grad():
+                generator.eval()
+                for n, (lcimg, lhimg, lsimg) in enumerate(landscape_dataloader):
+                    lcimg, lhimg, lsimg = lcimg.to(device), lhimg.to(device), lsimg.to(device)
+                    mask = mask_gen()
+                    hint = torch.cat((lhimg * mask, mask), 1)
+                    g_recon = generator(lsimg, hint)
+                    result = torch.cat((lcimg[0], g_recon[0]), 2)
+                    path = os.path.join(args.name + '_results', 'Transfer', str(epoch+1) + '_epoch_' + args.name + '_train_' + str(n + 1) + '.png')
+                    plt.imsave(path, (result.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+                    if n == 4:
+                        break
 
-    #             for n, (x, _) in enumerate(test_loader_src):
-    #                 x = x.to(device)
-    #                 G_recon = Generator(x)
-    #                 result = torch.cat((x[0], G_recon[0]), 2)
-    #                 path = os.path.join(args.name + '_results', 'Transfer', str(epoch+1) + '_epoch_' + args.name + '_test_' + str(n + 1) + '.png')
-    #                 plt.imsave(path, (result.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
-    #                 if n == 4:
-    #                     break
+                # for n, (x, _) in enumerate(test_loader_src):
+                #     x = x.to(device)
+                #     G_recon = generator(x)
+                #     result = torch.cat((x[0], G_recon[0]), 2)
+                #     path = os.path.join(args.name + '_results', 'Transfer', str(epoch+1) + '_epoch_' + args.name + '_test_' + str(n + 1) + '.png')
+                #     plt.imsave(path, (result.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+                #     if n == 4:
+                #         break
 
-    #             torch.save(Generator.state_dict(), os.path.join(args.name + '_results', 'generator_latest.pkl'))
-    #             torch.save(Generator.state_dict(), os.path.join(args.name + '_results', 'discriminator_latest.pkl'))
+                torch.save(generator.state_dict(), os.path.join(args.name + '_results', 'generator_latest.pkl'))
+                torch.save(generator.state_dict(), os.path.join(args.name + '_results', 'discriminator_latest.pkl'))
 
-    # total_time = time.time() - start_time
-    # train_hist['total_time'].append(total_time)
+    total_time = time.time() - start_time
+    train_hist['total_time'].append(total_time)
 
-    # print("Avg one epoch time: %.2f, total %d epochs time: %.2f" % (torch.mean(torch.FloatTensor(train_hist['per_epoch_time'])), args.train_epoch, total_time))
-    # print("Training finish!... save training results")
+    print("Avg one epoch time: %.2f, total %d epochs time: %.2f" % (torch.mean(torch.FloatTensor(train_hist['per_epoch_time'])), args.train_epoch, total_time))
+    print("Training finish!... save training results")
 
-    # torch.save(Generator.state_dict(), os.path.join(args.name + '_results',  'generator_param.pkl'))
-    # torch.save(Discriminator.state_dict(), os.path.join(args.name + '_results',  'discriminator_param.pkl'))
-    # with open(os.path.join(args.name + '_results',  'train_hist.pkl'), 'wb') as f:
-    #     pickle.dump(train_hist, f)
+    torch.save(generator.state_dict(), os.path.join(args.name + '_results',  'generator_param.pkl'))
+    torch.save(discriminator.state_dict(), os.path.join(args.name + '_results',  'discriminator_param.pkl'))
+    with open(os.path.join(args.name + '_results',  'train_hist.pkl'), 'wb') as f:
+        pickle.dump(train_hist, f)
 
 
 if __name__ == '__main__':
