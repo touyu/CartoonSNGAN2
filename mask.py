@@ -48,12 +48,12 @@ def mask_gen():
     maskS = args.input_size // 4
 
     mask1 = torch.cat(
-        [torch.rand(1, 1, maskS, maskS).ge(X.rvs(1)[0]).float() for _ in range(args.batch_size)], 0)
+        [torch.rand(1, 1, maskS, maskS).ge(0.5).float() for _ in range(args.batch_size)], 0)
     mask = mask1
     # mask2 = torch.cat([torch.zeros(1, 1, maskS, maskS).float() for _ in range(args.batch_size // 2)], 0)
     # mask = torch.cat([mask1, mask2], 0)
 
-    mask = torch.cat([torch.ones(1, 1, maskS, maskS) for _ in range(args.batch_size)], 0)
+    # mask = torch.cat([torch.ones(1, 1, maskS, maskS) for _ in range(args.batch_size)], 0)
     print(mask.shape)
 
     return mask.to(device)

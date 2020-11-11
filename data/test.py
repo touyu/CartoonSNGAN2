@@ -52,16 +52,16 @@ class ImageFolder(data.Dataset):
             Cimg = color_loader(os.path.join(self.root, 'anime_color', fname))
             # Simg = sketch_loader(os.path.join(self.root, 'line', fname))
             # Cimg, Simg = RandomCrop(512)(Cimg, Simg)
-            if random.random() < 0.5:
-                Cimg = Cimg.transpose(Image.FLIP_LEFT_RIGHT)
+            # if random.random() < 0.5:
+            #     Cimg = Cimg.transpose(Image.FLIP_LEFT_RIGHT)
             Cimg, Himg = self.transform(Cimg), self.hint_transform(Cimg)
             return Cimg, Himg
         else:
             Cimg = color_loader(os.path.join(self.root, 'landscape_color', fname))
             Simg = sketch_loader(os.path.join(self.root, 'landscape_line', fname))
             # Cimg, Simg = RandomCrop(512)(Cimg, Simg)
-            if random.random() < 0.5:
-                Cimg, Simg = Cimg.transpose(Image.FLIP_LEFT_RIGHT), Simg.transpose(Image.FLIP_LEFT_RIGHT)
+            # if random.random() < 0.5:
+            #     Cimg, Simg = Cimg.transpose(Image.FLIP_LEFT_RIGHT), Simg.transpose(Image.FLIP_LEFT_RIGHT)
             Cimg, Himg, Simg = self.transform(Cimg), self.hint_transform(Cimg), self.sketch_transform(Simg)
             return Cimg, Himg, Simg
 

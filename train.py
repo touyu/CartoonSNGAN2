@@ -57,8 +57,6 @@ def mask_gen():
     mask2 = torch.cat([torch.zeros(1, 1, maskS, maskS).float() for _ in range(args.batch_size // 2)], 0)
     mask = torch.cat([mask1, mask2], 0)
 
-    mask = torch.cat([torch.ones(1, 1, maskS, maskS) for _ in range(args.batch_size)], 0)
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     return mask.to(device)
 
