@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as M
-from torch.nn.utils.spectral_norm import spectral_norm, SpectralNorm
+from torch.nn.utils.spectral_norm import spectral_norm
+import utils
 
 class ResNeXtBottleneck(nn.Module):
     def __init__(self, in_channels=256, out_channels=256, stride=1, cardinality=32, dilate=1):
@@ -116,7 +117,7 @@ class Generator(nn.Module):
         x = self.tunnel3(torch.cat([x, x3], 1))
         x = self.tunnel2(torch.cat([x, x2], 1))
         x = self.tunnel1(torch.cat([x, x1], 1))
-        x = F.tanh(self.exit(torch.cat([x, x0], 1)))
+        x = torch.tanh(self.exit(torch.cat([x, x0], 1)))
 
         return x
 
@@ -141,9 +142,6 @@ class Discriminator(nn.Module):
             nn.LeakyReLU(0.2, True)
         )
 
-        # self.conv2 = spectral_norm(self.conv2)
-        # self.conv2 = activation(self.conv2)
-
         self.conv3 = nn.Sequential(
             nn.Conv2d(nf * 4, nf * 4, 3, 2, 1),
             nn.LeakyReLU(0.2, True),
@@ -151,16 +149,10 @@ class Discriminator(nn.Module):
             nn.LeakyReLU(0.2, True)
         )
 
-        # self.conv3 = spectral_norm(self.conv3)
-        # self.conv3 = activation(self.conv3)
-
         self.conv4 = nn.Sequential(
             spectral_norm(nn.Conv2d(nf * 8, nf * 8, 3, 1, 1)),
             nn.LeakyReLU(0.2, True)
         )
-
-        # self.conv4 = spectral_norm(self.conv4)
-        # self.conv4 = activation(self.conv4)
 
         self.conv5 = nn.Sequential(
             nn.Conv2d(nf * 8, out_nc, 3, 1, 1)
@@ -179,40 +171,6 @@ class Discriminator(nn.Module):
         x = torch.sigmoid(x)
 
         return x
-
-# class Discriminator(nn.Module):
-#     # initializers
-#     def __init__(self, in_nc, out_nc, nf=32):
-#         super(Discriminator, self).__init__()
-#         self.input_nc = in_nc
-#         self.output_nc = out_nc
-#         self.nf = nf
-
-#         self.convs = nn.Sequential(
-#             nn.Conv2d(in_nc, nf, 3, 1, 1),
-#             nn.LeakyReLU(0.2, True),
-#             nn.Conv2d(nf, nf * 2, 3, 2, 1),
-#             nn.LeakyReLU(0.2, True),
-#             spectral_norm(nn.Conv2d(nf * 2, nf * 4, 3, 1, 1)),
-#             nn.LeakyReLU(0.2, True),
-#             nn.Conv2d(nf * 4, nf * 4, 3, 2, 1),
-#             nn.LeakyReLU(0.2, True),
-#             spectral_norm(nn.Conv2d(nf * 4, nf * 8, 3, 1, 1)),
-#             nn.LeakyReLU(0.2, True),
-#             spectral_norm(nn.Conv2d(nf * 8, nf * 8, 3, 1, 1)),
-#             nn.LeakyReLU(0.2, True),
-#             nn.Conv2d(nf * 8, out_nc, 3, 1, 1),
-#             nn.Sigmoid(),
-#         )
-
-#         # utils.initialize_weights(self)
-
-#     # forward method
-#     def forward(self, x):
-
-#         output = self.convs(input)
-
-#         return output
 
 class VGG19(nn.Module):
     def __init__(self, init_weights=None, feature_mode=False, batch_norm=False, num_classes=1000):
