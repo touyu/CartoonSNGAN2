@@ -49,13 +49,14 @@ class ImageFolder(data.Dataset):
     def __getitem__(self, index):
         fname = self.imgs[index]
         if self.dataset_type == "anime":
-            Cimg = color_loader(os.path.join(self.root, 'anime_color', fname))
-            # Simg = sketch_loader(os.path.join(self.root, 'line', fname))
-            # Cimg, Simg = RandomCrop(512)(Cimg, Simg)
+            OCimg = color_loader(os.path.join(self.root, 'anime_color_pair', fname))
+            Cimg = OCimg.crop((0, 0, 256, 256))
+            SCimg = OCimg.crop((256, 0, 512, 256))
             if random.random() < 0.5:
                 Cimg = Cimg.transpose(Image.FLIP_LEFT_RIGHT)
-            Cimg, Himg = self.transform(Cimg), self.hint_transform(Cimg)
-            return Cimg, Himg
+                SCimg = SCimg.transpose(Image.FLIP_LEFT_RIGHT)
+            Cimg, SCimg, Himg = self.transform(Cimg), self.transform(SCimg), self.hint_transform(Cimg)
+            return Cimg, SCimg, Himg
         else:
             Cimg = color_loader(os.path.join(self.root, 'landscape_color', fname))
             Simg = sketch_loader(os.path.join(self.root, 'landscape_line', fname))
@@ -76,7 +77,7 @@ def make_dataset(root, dataset_type):
     images = []
 
     if dataset_type == "anime":
-        path = os.walk(os.path.join(root, 'anime_color'))
+        path = os.walk(os.path.join(root, 'anime_color_pair'))
     else:
         path = os.walk(os.path.join(root, 'landscape_color'))
 

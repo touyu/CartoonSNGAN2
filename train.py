@@ -7,6 +7,7 @@ from torchvision import transforms
 import scipy.stats as stats
 from data.train import CreateDataLoader as CreateTrainDataLoader
 from data.test import CreateDataLoader as CreateTestDataLoader
+from edge_promoting import edge_promoting
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--name', required=False, default='project_name',  help='')
@@ -27,8 +28,8 @@ parser.add_argument('--pre_train_epoch', type=int, default=30)
 parser.add_argument('--lrD', type=float, default=0.0002, help='learning rate, default=0.0002')
 parser.add_argument('--lrG', type=float, default=0.0002, help='learning rate, default=0.0002')
 parser.add_argument('--con_lambda', type=float, default=10, help='lambda for content loss')
-parser.add_argument('--beta1', type=float, default=0, help='beta1 for Adam optimizer')
-parser.add_argument('--beta2', type=float, default=0.9, help='beta2 for Adam optimizer')
+parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for Adam optimizer')
+parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam optimizer')
 parser.add_argument('--latest_generator_model', required=False, default='', help='the latest trained model path')
 parser.add_argument('--latest_discriminator_model', required=False, default='', help='the latest trained model path')
 parser.add_argument('--n_dis', type=int, default='5', help='discriminator trainging count per generater training count')
@@ -58,12 +59,21 @@ def mask_gen():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     return mask.to(device)
 
+def make_edge_promoting_img():
+    # edge-promoting
+    if not os.path.isdir(os.path.join(args.train_root, 'anime_color_pair')):
+        print('edge-promoting start!!')
+        edge_promoting(os.path.join(args.train_root, 'anime_color'), os.path.join(args.train_root, 'anime_color_pair'), args.input_size)
+    else:
+        print('edge-promoting already done')
+
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     if torch.backends.cudnn.enabled:
         torch.backends.cudnn.benchmark = True
 
     prepare_result()
+    make_edge_promoting_img()
 
     # data_loader
     landscape_dataloader = CreateTrainDataLoader(args, "landscape")
@@ -112,6 +122,8 @@ def main():
     Hinge_loss = nn.HingeEmbeddingLoss().to(device)
     L1_loss = nn.L1Loss().to(device)
     MSELoss = nn.MSELoss().to(device)
+
+    Adv_loss = BCE_loss
 
     pre_train_hist = {}
     pre_train_hist['Recon_loss'] = []
@@ -201,8 +213,8 @@ def main():
         Disc_losses = []
         Gen_losses = []
         Con_losses = []
-        for i, ((acimg, _), (lcimg, lhimg, lsimg)) in enumerate(zip(anime_dataloader, landscape_dataloader)):
-            acimg, lcimg, lhimg, lsimg = acimg.to(device), lcimg.to(device), lhimg.to(device), lsimg.to(device)
+        for i, ((acimg, ac_smooth_img, _), (lcimg, lhimg, lsimg)) in enumerate(zip(anime_dataloader, landscape_dataloader)):
+            acimg, ac_smooth_img, lcimg, lhimg, lsimg = acimg.to(device), ac_smooth_img.to(device), lcimg.to(device), lhimg.to(device), lsimg.to(device)
 
             if i % args.n_dis == 0:
                  # train G
@@ -212,7 +224,7 @@ def main():
                 hint = torch.cat((lhimg * mask, mask), 1)
                 gen_img = generator(lsimg, hint)
                 D_fake = discriminator(gen_img)
-                D_fake_loss = Hinge_loss(D_fake, real)
+                D_fake_loss = Adv_loss(D_fake, real)
 
                 x_feature = VGG((lcimg + 1) / 2)
                 G_feature = VGG((gen_img + 1) / 2)
@@ -232,20 +244,20 @@ def main():
             D_optimizer.zero_grad()
 
             D_real = discriminator(acimg)
-            D_real_loss = Hinge_loss(D_real, real) # Hinge Loss (?)
+            D_real_loss = Adv_loss(D_real, real) # Hinge Loss (?)
 
             mask = mask_gen()
             hint = torch.cat((lhimg * mask, mask), 1)
 
             gen_img = generator(lsimg, hint)
             D_fake = discriminator(gen_img)
-            D_fake_loss = Hinge_loss(D_fake, fake)
+            D_fake_loss = Adv_loss(D_fake, fake)
 
-            # D_edge = Discriminator(e)
-            # D_edge_loss = Hinge_loss(D_edge, fake)
+            D_edge = discriminator(ac_smooth_img)
+            D_edge_loss = Adv_loss(D_edge, fake)
 
-            # Disc_loss = D_real_loss + D_fake_loss + D_edge_loss
-            Disc_loss = D_real_loss + D_fake_loss
+            Disc_loss = D_real_loss + D_fake_loss + D_edge_loss
+            # Disc_loss = D_real_loss + D_fake_loss
             Disc_losses.append(Disc_loss.item())
             train_hist['Disc_loss'].append(Disc_loss.item())
 
