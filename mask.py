@@ -41,6 +41,14 @@ anime_dataloader = CreateTrainDataLoader(args, "anime")
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+def mask_gen2(v):
+    maskS = args.input_size // 4
+
+    mask = torch.cat(
+        [torch.rand(1, 1, maskS, maskS).ge(v).float() for _ in range(args.batch_size)], 0)
+
+    return mask.to(device)
+
 def mask_gen():
     mu, sigma = 1, 0.005
     X = stats.truncnorm((0 - mu) / sigma, (1 - mu) / sigma, loc=mu, scale=sigma)
@@ -48,23 +56,38 @@ def mask_gen():
     maskS = args.input_size // 4
 
     mask1 = torch.cat(
-        [torch.rand(1, 1, maskS, maskS).ge(0.5).float() for _ in range(args.batch_size)], 0)
+        [torch.rand(1, 1, maskS, maskS).ge(0.75).float() for _ in range(args.batch_size)], 0)
     mask = mask1
     # mask2 = torch.cat([torch.zeros(1, 1, maskS, maskS).float() for _ in range(args.batch_size // 2)], 0)
     # mask = torch.cat([mask1, mask2], 0)
 
     # mask = torch.cat([torch.ones(1, 1, maskS, maskS) for _ in range(args.batch_size)], 0)
-    print(mask.shape)
 
     return mask.to(device)
 
 for i, (lcimg, lhimg, lsimg) in enumerate(landscape_dataloader):
     lcimg, lhimg, lsimg = lcimg.to(device), lhimg.to(device), lsimg.to(device)
-    mask = mask_gen()
-    mask_imgs = lhimg * mask
-    hint = torch.cat((mask_imgs, mask), 1)
+    mask0 = mask_gen2(0)
+    mask05 = mask_gen2(0.5)
+    mask1 = mask_gen2(1)
+    mask0_imgs = lhimg * mask0
+    mask05_imgs = lhimg * mask05
+    mask1_imgs = lhimg * mask1
 
-    for i, mask_img in enumerate(mask_imgs):
-        plt.imsave(f"mask_results/{i}.png", (mask_img.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+    plt.imsave(f"mask_sample_results/original_{i}.png", (lcimg[0].cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+    plt.imsave(f"mask_sample_results/mask0_{i}.png", (mask0_imgs[0].cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+    plt.imsave(f"mask_sample_results/mask05_{i}.png", (mask05_imgs[0].cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+    plt.imsave(f"mask_sample_results/mask1_{i}.png", (mask1_imgs[0].cpu().numpy().transpose(1, 2, 0) + 1) / 2)
 
     break
+
+# for i, (lcimg, lhimg, lsimg) in enumerate(landscape_dataloader):
+#     lcimg, lhimg, lsimg = lcimg.to(device), lhimg.to(device), lsimg.to(device)
+#     mask = mask_gen()
+#     mask_imgs = lhimg * mask
+#     hint = torch.cat((mask_imgs, mask), 1)
+
+#     for i, mask_img in enumerate(mask_imgs):
+#         plt.imsave(f"mask_results/{i}.png", (mask_img.cpu().numpy().transpose(1, 2, 0) + 1) / 2)
+
+#     break

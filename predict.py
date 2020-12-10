@@ -17,7 +17,7 @@ parser.add_argument('--in_ngc', type=int, default=3, help='input channel for gen
 parser.add_argument('--out_ngc', type=int, default=3, help='output channel for generator')
 parser.add_argument('--in_ndc', type=int, default=3, help='input channel for discriminator')
 parser.add_argument('--out_ndc', type=int, default=1, help='output channel for discriminator')
-parser.add_argument('--batch_size', type=int, default=8, help='batch size')
+parser.add_argument('--batch_size', type=int, default=10, help='batch size')
 parser.add_argument('--ngf', type=int, default=64)
 parser.add_argument('--ndf', type=int, default=32)
 parser.add_argument('--nb', type=int, default=8, help='the number of resnet block layer for generator')
@@ -45,7 +45,10 @@ def mask_gen():
     mask2 = torch.cat([torch.zeros(1, 1, maskS, maskS).float() for _ in range(args.batch_size // 2)], 0)
     mask = torch.cat([mask1, mask2], 0)
 
-    mask = torch.cat([torch.ones(1, 1, maskS, maskS) for _ in range(args.batch_size)], 0)
+    # mask = torch.cat([torch.ones(1, 1, maskS, maskS) for _ in range(args.batch_size)], 0)
+
+    mask = torch.cat(
+        [torch.rand(1, 1, maskS, maskS).ge(0.9).float() for _ in range(args.batch_size)], 0)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     return mask.to(device)

@@ -52,10 +52,8 @@ def mask_gen():
 
     maskS = args.input_size // 4
 
-    mask1 = torch.cat(
-        [torch.rand(1, 1, maskS, maskS).ge(X.rvs(1)[0]).float() for _ in range(args.batch_size // 2)], 0)
-    mask2 = torch.cat([torch.zeros(1, 1, maskS, maskS).float() for _ in range(args.batch_size // 2)], 0)
-    mask = torch.cat([mask1, mask2], 0)
+    mask = torch.cat(
+        [torch.rand(1, 1, maskS, maskS).ge(0.9).float() for _ in range(args.batch_size)], 0)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     return mask.to(device)
@@ -111,6 +109,7 @@ def main():
     print('-----------------------------------------------')
 
     BCE_loss = nn.BCELoss().to(device)
+    Hinge_loss = nn.HingeEmbeddingLoss().to(device)
     L1_loss = nn.L1Loss().to(device)
     MSELoss = nn.MSELoss().to(device)
 
@@ -213,7 +212,7 @@ def main():
                 hint = torch.cat((lhimg * mask, mask), 1)
                 gen_img = generator(lsimg, hint)
                 D_fake = discriminator(gen_img)
-                D_fake_loss = BCE_loss(D_fake, real)
+                D_fake_loss = Hinge_loss(D_fake, real)
 
                 x_feature = VGG((lcimg + 1) / 2)
                 G_feature = VGG((gen_img + 1) / 2)
@@ -233,17 +232,17 @@ def main():
             D_optimizer.zero_grad()
 
             D_real = discriminator(acimg)
-            D_real_loss = BCE_loss(D_real, real) # Hinge Loss (?)
+            D_real_loss = Hinge_loss(D_real, real) # Hinge Loss (?)
 
             mask = mask_gen()
             hint = torch.cat((lhimg * mask, mask), 1)
 
             gen_img = generator(lsimg, hint)
             D_fake = discriminator(gen_img)
-            D_fake_loss = BCE_loss(D_fake, fake)
+            D_fake_loss = Hinge_loss(D_fake, fake)
 
             # D_edge = Discriminator(e)
-            # D_edge_loss = BCE_loss(D_edge, fake)
+            # D_edge_loss = Hinge_loss(D_edge, fake)
 
             # Disc_loss = D_real_loss + D_fake_loss + D_edge_loss
             Disc_loss = D_real_loss + D_fake_loss
